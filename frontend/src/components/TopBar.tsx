@@ -32,11 +32,11 @@ export default function TopBar({ summary, recomputing }: TopBarProps) {
             <div className="w-px h-5 bg-edge" />
             <Stat
               label="REQUIREMENT REUSE"
-              value={`${summary.uniqueRequirements} reqs \u2192 ${summary.applicableControls} controls`}
+              value={`${summary.uniqueRequirements} reqs across ${summary.applicableControls} controls`}
               accent
             />
             <div className="w-px h-5 bg-edge" />
-            <Stat label="MAPPINGS" value={String(summary.totalMappings)} />
+            <Stat label="APPLICABLE" value={`${summary.applicableControls}/${summary.totalControls} controls`} />
           </>
         )}
       </div>
