@@ -1,26 +1,10 @@
-import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const SQL = await initSqlJs();
+let db: SqlJsDatabase | null = null;
 
-function getDbPath(): string {
-  if (process.env.VERCEL) return '/tmp/control-mapper.db';
-  const dataDir = join(__dirname, '..', '..', 'data');
-  mkdirSync(dataDir, { recursive: true });
-  return join(dataDir, 'control-mapper.db');
-}
-
-let db: Database.Database | null = null;
-
-export function getDb(): Database.Database {
-  if (!db) {
-    db = new Database(getDbPath());
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-  }
+export function getDb(): SqlJsDatabase {
+  if (!db) db = new SQL.Database();
   return db;
 }
 
@@ -47,12 +31,35 @@ CREATE TABLE IF NOT EXISTS customer_scope (
 `;
 
 export function initDb(): void {
-  getDb().exec(SCHEMA);
+  getDb().run(SCHEMA);
 }
 
 export function isSeeded(): boolean {
-  const row = getDb().prepare('SELECT COUNT(*) as cnt FROM catalog_version').get() as { cnt: number };
-  return row.cnt > 0;
+  const rows = getDb().exec('SELECT COUNT(*) as cnt FROM catalog_version');
+  return rows.length > 0 && (rows[0].values[0][0] as number) > 0;
+}
+
+// ─── Query helpers (sql.js compatibility layer) ─────────────────────
+
+export function dbAll(sql: string, params: unknown[] = []): Record<string, unknown>[] {
+  const stmt = getDb().prepare(sql);
+  stmt.bind(params);
+  const results: Record<string, unknown>[] = [];
+  while (stmt.step()) results.push(stmt.getAsObject());
+  stmt.free();
+  return results;
+}
+
+export function dbGet(sql: string, params: unknown[] = []): Record<string, unknown> | undefined {
+  const stmt = getDb().prepare(sql);
+  stmt.bind(params);
+  const result = stmt.step() ? stmt.getAsObject() : undefined;
+  stmt.free();
+  return result as Record<string, unknown> | undefined;
+}
+
+export function dbRun(sql: string, params: unknown[] = []): void {
+  getDb().run(sql, params);
 }
 
 export function closeDb(): void {
