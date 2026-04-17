@@ -1,0 +1,81 @@
+import { getDb } from './database.js';
+
+export function seedDb(): void {
+  const db = getDb();
+
+  db.exec('DELETE FROM customer_scope');
+  db.exec('DELETE FROM control');
+  db.exec('DELETE FROM requirement');
+  db.exec('DELETE FROM catalog_version');
+
+  const CATALOG_VERSION = '2024.1';
+
+  db.prepare(
+    'INSERT INTO catalog_version (version, published_at, published_by, status) VALUES (?, ?, ?, ?)'
+  ).run(CATALOG_VERSION, '2024-01-15T00:00:00Z', 'security-team', 'published');
+
+  // ─── Requirements ──────────────────────────────────────────────────
+  const insertReq = db.prepare(
+    'INSERT INTO requirement (id, catalog_version, statement, domain, applies_when, criticality, rationale, authoritative_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+
+  const requirements = [
+    { id: 'REQ-LA-001', statement: 'MFA enforced on administrative console access to production cloud infrastructure (AWS Console, Azure Portal, or GCP Console).', domain: 'Logical Access', appliesWhen: { and: [{ or: [{ '==': [{ var: 'hasAws' }, true] }, { '==': [{ var: 'hasAzure' }, true] }, { '==': [{ var: 'hasGcp' }, true] }] }, { '==': [{ var: 'hasAdminUsers' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 5, rationale: 'Administrative console access to production cloud infrastructure represents the highest-privilege attack surface. MFA prevents credential-only compromise of the entire environment.', authoritativeSource: 'AICPA TSC CC6.1' },
+    { id: 'REQ-LA-002', statement: 'MFA enforced on all version control system (VCS) accounts with write access to production-deployed repositories.', domain: 'Logical Access', appliesWhen: { and: [{ '==': [{ var: 'hasGithub' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 4, rationale: 'VCS accounts with write access can modify production-deployed code. Compromised VCS credentials enable supply-chain attacks.', authoritativeSource: 'AICPA TSC CC6.1' },
+    { id: 'REQ-LA-003', statement: 'SSO (SAML/OIDC) enforced as the sole authentication mechanism for production cloud console access, eliminating local password authentication.', domain: 'Logical Access', appliesWhen: { and: [{ '==': [{ var: 'hasOkta' }, true] }, { or: [{ '==': [{ var: 'hasAws' }, true] }, { '==': [{ var: 'hasAzure' }, true] }, { '==': [{ var: 'hasGcp' }, true] }] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 4, rationale: 'SSO centralizes authentication, enabling consistent policy enforcement and immediate deprovisioning via IdP.', authoritativeSource: 'AICPA TSC CC6.1, CC6.2' },
+    { id: 'REQ-LA-004', statement: 'Root/superadmin account protected with hardware MFA token, with usage restricted to break-glass procedures only.', domain: 'Logical Access', appliesWhen: { and: [{ or: [{ '==': [{ var: 'hasAws' }, true] }, { '==': [{ var: 'hasAzure' }, true] }, { '==': [{ var: 'hasGcp' }, true] }] }, { '==': [{ var: 'hasRootAccountMfa' }, true] }] }, criticality: 5, rationale: 'Root accounts bypass all IAM policies. Hardware MFA prevents remote credential compromise.', authoritativeSource: 'AICPA TSC CC6.1; AWS CIS 1.5' },
+    { id: 'REQ-LA-005', statement: 'Root/superadmin account access eliminated via SSO-only federation, with root credentials rotated and vaulted.', domain: 'Logical Access', appliesWhen: { and: [{ or: [{ '==': [{ var: 'hasAws' }, true] }, { '==': [{ var: 'hasAzure' }, true] }, { '==': [{ var: 'hasGcp' }, true] }] }, { '==': [{ var: 'hasRootAccountSsoOnly' }, true] }] }, criticality: 5, rationale: 'Eliminating root account access entirely via SSO federation removes the highest-risk credential from operational use.', authoritativeSource: 'AICPA TSC CC6.1; AWS Well-Architected' },
+    { id: 'REQ-LA-006', statement: 'IAM policies enforce least-privilege access: no wildcard (*) actions or resources in production IAM policies, verified by automated policy analysis.', domain: 'Logical Access', appliesWhen: { and: [{ '==': [{ var: 'hasAws' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 4, rationale: 'Wildcard IAM policies grant unbounded permissions, violating least-privilege.', authoritativeSource: 'AICPA TSC CC6.3; AWS CIS 1.16' },
+    { id: 'REQ-LA-007', statement: 'Network segmentation enforced: production VPC/VNET isolated from non-production with no direct peering, and ingress restricted to load balancer endpoints only.', domain: 'Logical Access', appliesWhen: { and: [{ or: [{ '==': [{ var: 'hasAws' }, true] }, { '==': [{ var: 'hasAzure' }, true] }, { '==': [{ var: 'hasGcp' }, true] }] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 4, rationale: 'Network segmentation contains blast radius. Production isolation prevents lateral movement.', authoritativeSource: 'AICPA TSC CC6.6; NIST SP 800-53 SC-7' },
+    { id: 'REQ-LA-008', statement: 'Encryption at rest enforced on all production data stores using cloud provider managed or customer-managed keys.', domain: 'Data Protection', appliesWhen: { and: [{ '==': [{ var: 'hasEncryptionAtRest' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 4, rationale: 'Encryption at rest protects data confidentiality if storage media is compromised.', authoritativeSource: 'AICPA TSC CC6.7; NIST SP 800-53 SC-28' },
+    { id: 'REQ-LA-009', statement: 'TLS 1.2 or higher enforced on all production data-in-transit paths, including internal service-to-service communication.', domain: 'Data Protection', appliesWhen: { and: [{ '==': [{ var: 'hasEncryptionInTransit' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 4, rationale: 'TLS enforcement prevents eavesdropping and MITM attacks.', authoritativeSource: 'AICPA TSC CC6.7; NIST SP 800-52 Rev2' },
+    { id: 'REQ-LA-010', statement: 'Branch protection rules enforced on production-deployed repositories: require pull request reviews, status checks, and signed commits before merge to main.', domain: 'Change Management', appliesWhen: { and: [{ '==': [{ var: 'hasGithub' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 3, rationale: 'Branch protection prevents unauthorized or unreviewed code from reaching production.', authoritativeSource: 'AICPA TSC CC8.1; NIST SP 800-53 CM-3' },
+    { id: 'REQ-LA-011', statement: 'Quarterly access reviews conducted for all production systems: verify continued need, correct role assignment, and remove stale accounts within 7 days.', domain: 'Logical Access', appliesWhen: { and: [{ '==': [{ var: 'hasProduction' }, true] }, { '==': [{ var: 'hasAdminUsers' }, true] }] }, criticality: 3, rationale: 'Access reviews detect privilege creep and orphaned accounts.', authoritativeSource: 'AICPA TSC CC6.2, CC6.3' },
+    { id: 'REQ-MON-001', statement: 'Centralized log aggregation operational for all production systems with minimum 90-day retention.', domain: 'Monitoring', appliesWhen: { and: [{ '==': [{ var: 'hasLogging' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 5, rationale: 'Centralized logging enables detection, investigation, and forensics.', authoritativeSource: 'AICPA TSC CC7.1; NIST SP 800-53 AU-6' },
+    { id: 'REQ-MON-002', statement: 'Automated alert rules configured for critical security events: unauthorized API calls, root account usage, security group modifications, and failed auth exceeding threshold.', domain: 'Monitoring', appliesWhen: { and: [{ '==': [{ var: 'hasAlertMonitoring' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 4, rationale: 'Automated alerting converts log data into actionable signals.', authoritativeSource: 'AICPA TSC CC7.2; NIST SP 800-53 SI-4' },
+    { id: 'REQ-MON-003', statement: 'Anomaly detection enabled for production workloads: baseline established for normal patterns; deviations trigger investigation within defined SLA.', domain: 'Monitoring', appliesWhen: { and: [{ '==': [{ var: 'hasAlertMonitoring' }, true] }, { '==': [{ var: 'hasLogging' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 3, rationale: 'Anomaly detection catches threats that static rules miss.', authoritativeSource: 'AICPA TSC CC7.2; NIST SP 800-53 SI-4(4)' },
+    { id: 'REQ-MON-004', statement: 'Documented incident response plan covering: classification severity levels, escalation procedures, communication templates, containment playbooks, and post-incident review.', domain: 'Incident Response', appliesWhen: { and: [{ '==': [{ var: 'hasIncidentResponse' }, true] }, { '==': [{ var: 'hasProduction' }, true] }] }, criticality: 4, rationale: 'Incident response readiness determines whether detection leads to containment or chaos.', authoritativeSource: 'AICPA TSC CC7.3, CC7.4; NIST SP 800-61 Rev2' },
+  ];
+
+  const insertReqTx = db.transaction(() => {
+    for (const r of requirements) {
+      insertReq.run(r.id, CATALOG_VERSION, r.statement, r.domain, JSON.stringify(r.appliesWhen), r.criticality, r.rationale, r.authoritativeSource);
+    }
+  });
+  insertReqTx();
+
+  // ─── Controls ──────────────────────────────────────────────────────
+  const insertCtrl = db.prepare(
+    'INSERT INTO control (id, catalog_version, framework, ref, title, description, verifies_json, rationale) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+
+  const controls = [
+    { id: 'SOC2-CC6.1', ref: 'CC6.1', title: 'Logical Access Security', description: 'The entity implements logical access security software, infrastructure, and architectures over protected information assets.', verifies: [{ requirementId: 'REQ-LA-001', weight: 0.30 }, { requirementId: 'REQ-LA-003', weight: 0.25 }, { requirementId: 'REQ-LA-004', weight: 0.25, compensatingGroup: 'root-access-protection' }, { requirementId: 'REQ-LA-005', weight: 0.25, compensatingGroup: 'root-access-protection' }, { requirementId: 'REQ-LA-007', weight: 0.20 }], rationale: 'CC6.1 requires multi-layered logical access controls.' },
+    { id: 'SOC2-CC6.2', ref: 'CC6.2', title: 'User Authentication and Credential Management', description: 'Prior to issuing system credentials and granting system access, the entity registers and authorizes new internal and external users.', verifies: [{ requirementId: 'REQ-LA-001', weight: 0.30 }, { requirementId: 'REQ-LA-002', weight: 0.25 }, { requirementId: 'REQ-LA-003', weight: 0.25 }, { requirementId: 'REQ-LA-011', weight: 0.20 }], rationale: 'CC6.2 focuses on credential lifecycle.' },
+    { id: 'SOC2-CC6.3', ref: 'CC6.3', title: 'Role-Based Access and Least Privilege', description: 'The entity authorizes, modifies, or removes access to data, software functions, and protected information assets based on roles.', verifies: [{ requirementId: 'REQ-LA-006', weight: 0.40 }, { requirementId: 'REQ-LA-011', weight: 0.35, compensatingGroup: 'access-lifecycle' }, { requirementId: 'REQ-LA-003', weight: 0.35, compensatingGroup: 'access-lifecycle' }, { requirementId: 'REQ-LA-010', weight: 0.25 }], rationale: 'CC6.3 requires role-based access.' },
+    { id: 'SOC2-CC6.6', ref: 'CC6.6', title: 'System Boundaries and Network Segmentation', description: 'The entity implements logical access security measures against threats from sources outside its system boundaries.', verifies: [{ requirementId: 'REQ-LA-007', weight: 0.50 }, { requirementId: 'REQ-LA-009', weight: 0.30 }, { requirementId: 'REQ-LA-001', weight: 0.20 }], rationale: 'CC6.6 protects system boundaries.' },
+    { id: 'SOC2-CC6.7', ref: 'CC6.7', title: 'Data Transmission and Movement Controls', description: 'The entity restricts the transmission, movement, and removal of information to authorized users and protects it during transmission.', verifies: [{ requirementId: 'REQ-LA-009', weight: 0.40 }, { requirementId: 'REQ-LA-008', weight: 0.35 }, { requirementId: 'REQ-LA-010', weight: 0.25 }], rationale: 'CC6.7 governs data protection in transit and at rest.' },
+    { id: 'SOC2-CC6.8', ref: 'CC6.8', title: 'Protection Against Malicious Software', description: 'The entity implements controls to prevent or detect and act upon the introduction of unauthorized or malicious software.', verifies: [{ requirementId: 'REQ-LA-010', weight: 0.35 }, { requirementId: 'REQ-LA-002', weight: 0.30 }, { requirementId: 'REQ-MON-002', weight: 0.35 }], rationale: 'CC6.8 addresses malicious software prevention.' },
+    { id: 'SOC2-CC7.1', ref: 'CC7.1', title: 'Infrastructure and Software Monitoring', description: 'To meet its objectives, the entity uses detection and monitoring procedures to identify changes to configurations and new vulnerabilities.', verifies: [{ requirementId: 'REQ-MON-001', weight: 0.40 }, { requirementId: 'REQ-MON-002', weight: 0.30 }, { requirementId: 'REQ-MON-003', weight: 0.30 }], rationale: 'CC7.1 requires detection and monitoring.' },
+    { id: 'SOC2-CC7.2', ref: 'CC7.2', title: 'Security Event Detection and Analysis', description: 'The entity monitors system components for anomalies indicative of malicious acts, natural disasters, and errors.', verifies: [{ requirementId: 'REQ-MON-002', weight: 0.35 }, { requirementId: 'REQ-MON-003', weight: 0.35 }, { requirementId: 'REQ-MON-001', weight: 0.30 }], rationale: 'CC7.2 focuses on event detection and analysis.' },
+    { id: 'SOC2-CC7.3', ref: 'CC7.3', title: 'Incident Response and Recovery', description: 'The entity evaluates security events to determine whether they constitute incidents, and takes action to contain and recover.', verifies: [{ requirementId: 'REQ-MON-004', weight: 0.40 }, { requirementId: 'REQ-MON-002', weight: 0.30 }, { requirementId: 'REQ-MON-001', weight: 0.30 }], rationale: 'CC7.3 requires incident response capability.' },
+  ];
+
+  const insertCtrlTx = db.transaction(() => {
+    for (const c of controls) {
+      insertCtrl.run(c.id, CATALOG_VERSION, 'SOC2', c.ref, c.title, c.description, JSON.stringify(c.verifies), c.rationale);
+    }
+  });
+  insertCtrlTx();
+
+  // ─── Default Customer ──────────────────────────────────────────────
+  db.prepare(
+    'INSERT OR REPLACE INTO customer_scope (customer_id, facts_json, pinned_catalog_version, updated_at) VALUES (?, ?, ?, ?)'
+  ).run('demo-customer', JSON.stringify({
+    hasAws: true, hasAzure: false, hasGcp: false, hasProduction: true,
+    hasAdminUsers: true, hasOkta: true, hasGithub: false,
+    hasEncryptionAtRest: false, hasEncryptionInTransit: false,
+    hasLogging: false, hasAlertMonitoring: false, hasIncidentResponse: false,
+    hasRootAccountMfa: true, hasRootAccountSsoOnly: false,
+  }), CATALOG_VERSION, new Date().toISOString());
+}
