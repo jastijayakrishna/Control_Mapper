@@ -1,9 +1,15 @@
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js';
 
-const SQL = await initSqlJs();
+let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 let db: SqlJsDatabase | null = null;
 
+/** Must be called once before any DB access */
+export async function ensureInit(): Promise<void> {
+  if (!SQL) SQL = await initSqlJs();
+}
+
 export function getDb(): SqlJsDatabase {
+  if (!SQL) throw new Error('Call ensureInit() before using the database');
   if (!db) db = new SQL.Database();
   return db;
 }

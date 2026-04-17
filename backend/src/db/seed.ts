@@ -1,6 +1,7 @@
-import { initDb, closeDb } from './database.js';
+import { ensureInit, initDb, closeDb } from './database.js';
 import { seedDb } from './seed-fn.js';
 
+await ensureInit();
 initDb();
 seedDb();
 closeDb();

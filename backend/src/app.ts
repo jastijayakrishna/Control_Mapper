@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { initDb, isSeeded } from './db/database.js';
+import { ensureInit, initDb, isSeeded } from './db/database.js';
 import { seedDb } from './db/seed-fn.js';
 import router from './routes/index.js';
 
@@ -9,9 +9,25 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Initialize schema and auto-seed on cold start if empty
-initDb();
-if (!isSeeded()) seedDb();
+// Async boot: initialize sql.js, create schema, auto-seed if empty
+let booted = false;
+async function boot() {
+  if (booted) return;
+  await ensureInit();
+  initDb();
+  if (!isSeeded()) seedDb();
+  booted = true;
+}
+
+// Middleware: ensure DB is ready before any request
+app.use(async (_req, _res, next) => {
+  try {
+    await boot();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.use('/api', router);
 
