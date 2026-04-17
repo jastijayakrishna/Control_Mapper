@@ -144,9 +144,10 @@ function evaluateScopeFacts(
         }
       }
 
-      // Mark all facts in the OR group with the group's result
+      // Mark each fact with its individual actual value
+      // (The overall OR-group pass/fail is handled by jsonLogic.apply separately)
       for (const factName of orFacts) {
-        addFact(factName, groupSatisfied);
+        addFact(factName, scopeRecord[factName] === true);
       }
       return;
     }
