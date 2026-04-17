@@ -277,6 +277,44 @@ describe('computeControlMapping', () => {
     const prodEval = evalTrace.find((e) => e.fact === 'hasProduction')!;
     expect(prodEval.satisfied).toBe(true);
   });
+
+  it('13. OR group scope evaluation shows individual fact status, not group status', () => {
+    // Condition: (hasAws OR hasAzure OR hasGcp) AND hasProduction
+    const req = makeReq('R1', {
+      and: [
+        { or: [{ '==': [{ var: 'hasAws' }, true] }, { '==': [{ var: 'hasAzure' }, true] }, { '==': [{ var: 'hasGcp' }, true] }] },
+        { '==': [{ var: 'hasProduction' }, true] },
+      ],
+    });
+    const ctrl = makeControl('C1', [{ requirementId: 'R1', weight: 1.0 }]);
+    // Only Azure is on — AWS and GCP are off
+    const scope: ScopeFacts = { ...EMPTY_SCOPE, hasAzure: true, hasProduction: true };
+    const result = computeControlMapping(ctrl, makeReqMap([req]), scope);
+
+    // The requirement IS applicable (OR group passes via Azure)
+    expect(result.explanation[0].applicable).toBe(true);
+
+    const evalTrace = result.explanation[0].scopeEvaluation;
+
+    // AWS should show satisfied=false (it's OFF)
+    const awsEval = evalTrace.find((e) => e.fact === 'hasAws')!;
+    expect(awsEval.actual).toBe(false);
+    expect(awsEval.satisfied).toBe(false);
+
+    // Azure should show satisfied=true (it's ON)
+    const azureEval = evalTrace.find((e) => e.fact === 'hasAzure')!;
+    expect(azureEval.actual).toBe(true);
+    expect(azureEval.satisfied).toBe(true);
+
+    // GCP should show satisfied=false (it's OFF)
+    const gcpEval = evalTrace.find((e) => e.fact === 'hasGcp')!;
+    expect(gcpEval.actual).toBe(false);
+    expect(gcpEval.satisfied).toBe(false);
+
+    // Production should show satisfied=true
+    const prodEval = evalTrace.find((e) => e.fact === 'hasProduction')!;
+    expect(prodEval.satisfied).toBe(true);
+  });
 });
 
 describe('computeFullMapping', () => {
