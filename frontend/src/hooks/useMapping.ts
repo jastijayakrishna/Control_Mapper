@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ScopeFacts, MappingResult, CoverageSummary, ControlMapping } from '../types';
 import { DEFAULT_SCOPE_FACTS } from '../types';
-import { getScope, updateScope, getMapping, getCoverageSummary } from '../api';
+import { computeMapping, getInitialState } from '../api';
 
 export function useMapping() {
   const [scope, setScope] = useState<ScopeFacts>({ ...DEFAULT_SCOPE_FACTS });
@@ -12,19 +12,17 @@ export function useMapping() {
   const [recomputing, setRecomputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recomputeTimer = useRef<number | null>(null);
+  // Guard against stale responses from out-of-order network calls
+  const requestCounter = useRef(0);
 
-  // Initial load
+  // Initial load — single atomic call
   useEffect(() => {
     async function init() {
       try {
-        const [scopeRes, mappingRes, summaryRes] = await Promise.all([
-          getScope(),
-          getMapping(),
-          getCoverageSummary(),
-        ]);
-        setScope(scopeRes.facts);
-        setMapping(mappingRes);
-        setSummary(summaryRes);
+        const result = await getInitialState({ ...DEFAULT_SCOPE_FACTS });
+        setScope(result.scope.facts);
+        setMapping(result.mapping);
+        setSummary(result.summary);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load');
       } finally {
@@ -34,7 +32,7 @@ export function useMapping() {
     init();
   }, []);
 
-  // Toggle a single scope fact
+  // Toggle a single scope fact — single atomic call with full scope
   const toggleFact = useCallback(
     async (fact: keyof ScopeFacts) => {
       const newValue = !scope[fact];
@@ -48,32 +46,37 @@ export function useMapping() {
         clearTimeout(recomputeTimer.current);
       }
 
-      try {
-        // Update scope, then fetch new mapping + summary in parallel
-        await updateScope({ [fact]: newValue });
-        const [newMapping, newSummary] = await Promise.all([
-          getMapping(),
-          getCoverageSummary(),
-        ]);
+      // Track this request to ignore stale responses
+      const thisRequest = ++requestCounter.current;
 
-        setMapping(newMapping);
-        setSummary(newSummary);
+      try {
+        // Single atomic call — sends full scope, gets mapping + summary together
+        const result = await computeMapping(newScope);
+
+        // Only apply if this is still the latest request
+        if (thisRequest !== requestCounter.current) return;
+
+        setMapping(result.mapping);
+        setSummary(result.summary);
 
         // Update selected control if one is selected
         if (selectedControl) {
-          const updated = newMapping.controls.find(
+          const updated = result.mapping.controls.find(
             (c) => c.controlId === selectedControl.controlId
           );
           setSelectedControl(updated || null);
         }
       } catch (err) {
+        if (thisRequest !== requestCounter.current) return;
         // Rollback on error
         setScope(scope);
         setError(err instanceof Error ? err.message : 'Failed to recompute');
       } finally {
-        recomputeTimer.current = window.setTimeout(() => {
-          setRecomputing(false);
-        }, 150);
+        if (thisRequest === requestCounter.current) {
+          recomputeTimer.current = window.setTimeout(() => {
+            setRecomputing(false);
+          }, 150);
+        }
       }
     },
     [scope, selectedControl]

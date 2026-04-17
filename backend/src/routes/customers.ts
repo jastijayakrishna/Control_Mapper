@@ -80,4 +80,42 @@ router.get('/:id/coverage-summary', (req: Request, res: Response) => {
   res.json(computeCoverageSummary(mapping));
 });
 
+// ─── POST /customers/:id/compute ──────────────────────────────────
+// Unified stateless endpoint: accepts the FULL scope, computes mapping
+// + summary in a single atomic response. This eliminates the serverless
+// race condition where parallel GET calls hit different instances.
+
+router.post('/:id/compute', (req: Request, res: Response) => {
+  const customerId = String(req.params.id);
+  const body = req.body as { facts: ScopeFacts };
+
+  if (!body.facts || typeof body.facts !== 'object') {
+    res.status(400).json({ error: 'Request body must include "facts" object with all scope facts' });
+    return;
+  }
+
+  // Validate all scope facts are present and boolean
+  const validKeys = Object.keys(DEFAULT_SCOPE_FACTS);
+  for (const key of validKeys) {
+    if (typeof (body.facts as Record<string, unknown>)[key] !== 'boolean') {
+      res.status(400).json({ error: `Missing or invalid scope fact: ${key}` });
+      return;
+    }
+  }
+
+  const scopeFacts = body.facts;
+  const version = '2024.1';
+
+  // Persist scope for consistency
+  upsertCustomerScope(customerId, scopeFacts, version);
+
+  // Compute mapping and summary in one atomic operation
+  const requirements = getRequirementsForVersion(version);
+  const controls = getControlsForVersion(version);
+  const mapping = computeFullMapping(controls, requirements, scopeFacts, customerId, version);
+  const summary = computeCoverageSummary(mapping);
+
+  res.json({ scope: { customerId, facts: scopeFacts, pinnedCatalogVersion: version }, mapping, summary });
+});
+
 export default router;
