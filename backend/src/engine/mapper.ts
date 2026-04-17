@@ -263,6 +263,9 @@ export function computeControlMapping(
     status = 'GAPS';
   }
 
+  // Compute max possible coverage (all requirements applicable)
+  const theoreticalMax = control.verifies.reduce((sum, v) => sum + v.weight, 0);
+
   return {
     controlId: control.id,
     controlRef: control.ref,
@@ -270,7 +273,7 @@ export function computeControlMapping(
     controlDescription: control.description,
     status,
     coverage: Math.round(totalCoverage * 1000) / 1000,
-    maxCoverage: 1.0,
+    maxCoverage: Math.min(theoreticalMax, 1.0),
     applicableCount,
     totalCount,
     explanation: explanations,

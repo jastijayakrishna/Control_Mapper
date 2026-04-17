@@ -12,9 +12,22 @@ router.post('/:id/scope', (req: Request, res: Response) => {
   const customerId = String(req.params.id);
   const body = req.body as { facts?: Partial<ScopeFacts>; pinnedCatalogVersion?: string };
 
-  if (!body.facts) {
+  if (!body.facts || typeof body.facts !== 'object') {
     res.status(400).json({ error: 'Request body must include "facts" object' });
     return;
+  }
+
+  // Validate scope fact keys and values
+  const validKeys = Object.keys(DEFAULT_SCOPE_FACTS);
+  for (const [key, value] of Object.entries(body.facts)) {
+    if (!validKeys.includes(key)) {
+      res.status(400).json({ error: `Invalid scope fact: ${key}` });
+      return;
+    }
+    if (typeof value !== 'boolean') {
+      res.status(400).json({ error: `Scope fact "${key}" must be a boolean, got ${typeof value}` });
+      return;
+    }
   }
 
   const existingScope = getCustomerScope(customerId);

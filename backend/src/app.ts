@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { ensureInit, initDb, isSeeded } from './db/database.js';
 import { seedDb } from './db/seed-fn.js';
@@ -33,6 +33,14 @@ app.use('/api', router);
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Global error handler — returns JSON, never leaks stack traces in production
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  console.error('[ERROR]', err.message);
+  res.status(500).json({
+    error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
+  });
 });
 
 export default app;
