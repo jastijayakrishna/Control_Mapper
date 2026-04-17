@@ -1,26 +1,31 @@
-import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { createRequire } from 'module';
+// Use the asm.js build of sql.js — no WASM binary needed, works everywhere including Vercel serverless
+import initSqlJs from 'sql.js/dist/sql-asm.js';
+
+type SqlJsDatabase = ReturnType<Awaited<ReturnType<typeof initSqlJs>>['Database']['prototype']['constructor']> & {
+  run(sql: string, params?: unknown[]): unknown;
+  exec(sql: string): { columns: string[]; values: unknown[][] }[];
+  prepare(sql: string): {
+    bind(params?: unknown[]): boolean;
+    step(): boolean;
+    getAsObject(): Record<string, unknown>;
+    free(): boolean;
+  };
+  close(): void;
+};
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 let db: SqlJsDatabase | null = null;
 
 /** Must be called once before any DB access */
 export async function ensureInit(): Promise<void> {
-  if (SQL) return;
-
-  // Locate the WASM binary shipped with sql.js
-  const require = createRequire(import.meta.url);
-  const sqlJsDir = dirname(require.resolve('sql.js'));
-  const wasmBinary = readFileSync(join(sqlJsDir, 'sql-wasm.wasm'));
-
-  SQL = await initSqlJs({ wasmBinary });
+  if (!SQL) {
+    SQL = await initSqlJs();
+  }
 }
 
 export function getDb(): SqlJsDatabase {
   if (!SQL) throw new Error('Call ensureInit() before using the database');
-  if (!db) db = new SQL.Database();
+  if (!db) db = new SQL.Database() as SqlJsDatabase;
   return db;
 }
 
@@ -55,7 +60,7 @@ export function isSeeded(): boolean {
   return rows.length > 0 && (rows[0].values[0][0] as number) > 0;
 }
 
-// ─── Query helpers (sql.js compatibility layer) ─────────────────────
+// ─── Query helpers ──────────────────────────────────────────────────
 
 export function dbAll(sql: string, params: unknown[] = []): Record<string, unknown>[] {
   const stmt = getDb().prepare(sql);

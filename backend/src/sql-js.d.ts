@@ -1,4 +1,4 @@
-declare module 'sql.js' {
+declare module 'sql.js/dist/sql-asm.js' {
   interface QueryExecResult {
     columns: string[];
     values: unknown[][];
@@ -24,5 +24,5 @@ declare module 'sql.js' {
   }
 
   export type { Database, Statement, QueryExecResult };
-  export default function initSqlJs(config?: { locateFile?: (file: string) => string; wasmBinary?: ArrayLike<number> | Buffer }): Promise<SqlJsStatic>;
+  export default function initSqlJs(): Promise<SqlJsStatic>;
 }
