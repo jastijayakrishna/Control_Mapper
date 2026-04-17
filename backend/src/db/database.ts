@@ -1,11 +1,21 @@
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { createRequire } from 'module';
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 let db: SqlJsDatabase | null = null;
 
 /** Must be called once before any DB access */
 export async function ensureInit(): Promise<void> {
-  if (!SQL) SQL = await initSqlJs();
+  if (SQL) return;
+
+  // Locate the WASM binary shipped with sql.js
+  const require = createRequire(import.meta.url);
+  const sqlJsDir = dirname(require.resolve('sql.js'));
+  const wasmBinary = readFileSync(join(sqlJsDir, 'sql-wasm.wasm'));
+
+  SQL = await initSqlJs({ wasmBinary });
 }
 
 export function getDb(): SqlJsDatabase {

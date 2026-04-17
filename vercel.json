@@ -3,6 +3,12 @@
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
   "framework": null,
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "backend/**",
+      "maxDuration": 10
+    }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/(.*)", "destination": "/index.html" }
