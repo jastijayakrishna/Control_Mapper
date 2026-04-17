@@ -88,47 +88,81 @@ function evaluateScopeFacts(
   const scopeRecord = scope as unknown as Record<string, boolean>;
   const seen = new Set<string>();
 
+  // Extract a fact name from a { "==": [{ "var": "X" }, true] } node
+  function extractFact(node: unknown): string | null {
+    if (node === null || node === undefined || typeof node !== 'object' || Array.isArray(node)) return null;
+    const obj = node as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    if (keys.length !== 1 || keys[0] !== '==') return null;
+    const args = obj['=='];
+    if (!Array.isArray(args) || args.length !== 2) return null;
+    const [left, right] = args;
+    if (right !== true) return null;
+    if (typeof left === 'object' && left !== null && 'var' in (left as Record<string, unknown>)) {
+      return (left as Record<string, unknown>)['var'] as string;
+    }
+    return null;
+  }
+
+  function addFact(varName: string, satisfied: boolean): void {
+    if (seen.has(varName) || !(varName in scopeRecord)) return;
+    seen.add(varName);
+    const label = (SCOPE_FACT_LABELS as Record<string, string>)[varName] || varName;
+    evaluations.push({
+      fact: varName,
+      label,
+      required: true,
+      actual: scopeRecord[varName],
+      satisfied,
+    });
+  }
+
   function walk(node: unknown): void {
     if (node === null || node === undefined) return;
     if (typeof node !== 'object') return;
-
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
-    }
+    if (Array.isArray(node)) { for (const item of node) walk(item); return; }
 
     const obj = node as Record<string, unknown>;
     const keys = Object.keys(obj);
+    if (keys.length !== 1) return;
+    const op = keys[0];
+    const args = obj[op];
 
-    if (keys.length === 1) {
-      const op = keys[0];
-      const args = obj[op];
+    // OR group: if ANY member is satisfied, the whole group passes
+    if (op === 'or' && Array.isArray(args)) {
+      const orFacts: string[] = [];
+      let groupSatisfied = false;
 
-      if (op === '==' && Array.isArray(args) && args.length === 2) {
-        const [left, right] = args;
-        if (
-          typeof left === 'object' &&
-          left !== null &&
-          'var' in (left as Record<string, unknown>)
-        ) {
-          const varName = (left as Record<string, unknown>)['var'] as string;
-          if (right === true && varName in scopeRecord && !seen.has(varName)) {
-            seen.add(varName);
-            const label = (SCOPE_FACT_LABELS as Record<string, string>)[varName] || varName;
-            evaluations.push({
-              fact: varName,
-              label,
-              required: true,
-              actual: scopeRecord[varName],
-              satisfied: scopeRecord[varName] === true,
-            });
-          }
+      for (const arg of args) {
+        const factName = extractFact(arg);
+        if (factName) {
+          orFacts.push(factName);
+          if (scopeRecord[factName] === true) groupSatisfied = true;
+        } else {
+          // Nested non-fact node inside OR — recurse
+          walk(arg);
         }
-      } else if (Array.isArray(args)) {
-        for (const arg of args) walk(arg);
-      } else {
-        walk(args);
       }
+
+      // Mark all facts in the OR group with the group's result
+      for (const factName of orFacts) {
+        addFact(factName, groupSatisfied);
+      }
+      return;
+    }
+
+    // Simple fact check: { "==": [{ "var": "X" }, true] }
+    const factName = extractFact(node);
+    if (factName) {
+      addFact(factName, scopeRecord[factName] === true);
+      return;
+    }
+
+    // AND or other compound: recurse into children
+    if (Array.isArray(args)) {
+      for (const arg of args) walk(arg);
+    } else {
+      walk(args);
     }
   }
 
